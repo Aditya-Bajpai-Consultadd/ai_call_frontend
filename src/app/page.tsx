@@ -42,6 +42,8 @@ export default function VoiceCall() {
   const [currentScamAlert, setCurrentScamAlert] = useState<ScamAlert | null>(null);
   const [scamHistory, setScamHistory] = useState<ScamAlert[]>([]);
   const [showScamAlert, setShowScamAlert] = useState(false);
+  const [showDangerBanner, setShowDangerBanner] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
 
   const socketRef = useRef<Socket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -52,6 +54,7 @@ export default function VoiceCall() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const isInCallRef = useRef(false);
   const isMutedRef = useRef(false);
@@ -129,20 +132,75 @@ export default function VoiceCall() {
       }
     });
 
-    // NEW: Listen for scam alerts (only USER receives these)
-    socketRef.current.on("scam-alert", (alert: ScamAlert) => {
-      console.log("🚨 SCAM ALERT RECEIVED:", alert);
-      setCurrentScamAlert(alert);
-      setScamHistory(prev => [alert, ...prev]);
-      setShowScamAlert(true);
+    // NEW: Listen for fraud scores (everyone receives)
+    socketRef.current.on("fraud-score", (data: {
+      speaker: string;
+      message: string;
+      summary: string;
+      fraudScore: number;
+      riskLevel: "LOW" | "MEDIUM" | "HIGH";
+      redFlags: string[];
+      reasoning: string;
+      matchedPatterns: string[];
+      timestamp: string;
+    }) => {
+      console.log("📊 FRAUD SCORE RECEIVED:", data);
       
-      // Play alert sound for high risk
-      if (alert.riskLevel === "HIGH") {
-        playAlertSound();
-        // Optionally vibrate on mobile
+      // Show fraud alert
+      const alert: ScamAlert = {
+        callerMessage: data.message,
+        summary: data.summary,
+        scamProbability: data.fraudScore,
+        riskLevel: data.riskLevel,
+        concerns: data.redFlags,
+        reasoning: data.reasoning,
+        recommendedAction: getFraudRecommendation(data.riskLevel, data.matchedPatterns),
+        timestamp: data.timestamp,
+      };
+      
+      setCurrentScamAlert(alert);
+      
+      setScamHistory(prev => [alert, ...prev]);
+      
+      setShowScamAlert(true);
+      setAlertCount(prev => prev + 1);
+      
+      // Show danger banner for HIGH and MEDIUM risk
+      if (data.riskLevel === "HIGH" || data.riskLevel === "MEDIUM") {
+        setShowDangerBanner(true);
+      }
+      
+      // Enhanced alerts for HIGH risk
+      if (data.riskLevel === "HIGH") {
+        // Play continuous alert sound
+        playAlertSound(true);
+        
+        // Vibrate in pattern (SOS: ... --- ...)
         if (navigator.vibrate) {
-          navigator.vibrate([200, 100, 200]);
+          // SOS pattern: short-short-short, long-long-long, short-short-short
+          navigator.vibrate([
+            200, 100, 200, 100, 200, 300,  // ... (short)
+            500, 100, 500, 100, 500, 300,  // --- (long)
+            200, 100, 200, 100, 200         // ... (short)
+          ]);
         }
+        
+        // Change page title to alert
+        document.title = "🚨 SCAM ALERT! 🚨";
+        
+        // Flash the favicon
+        flashFavicon();
+        
+        // Show browser notification if permitted
+        showNotification("🚨 SCAM ALERT!", `High fraud risk detected: ${data.fraudScore}%`);
+        
+      } else if (data.riskLevel === "MEDIUM") {
+        // Single vibration for medium risk
+        if (navigator.vibrate) {
+          navigator.vibrate([300, 200, 300]);
+        }
+        playAlertSound(false);
+        document.title = "⚠️ Warning - Possible Scam";
       }
     });
 
@@ -212,6 +270,10 @@ export default function VoiceCall() {
     stopAudioStreaming();
     peerConnectionsRef.current.forEach((pc) => pc.close());
     peerConnectionsRef.current.clear();
+    if (alertAudioRef.current) {
+      alertAudioRef.current.pause();
+    }
+    document.title = "Voice Call";
   };
 
   const updateAvailableDevices = async () => {
@@ -324,10 +386,12 @@ export default function VoiceCall() {
       }
 
       console.log("📞 Joining room:", roomId);
-      // Send room ID without specifying role - server will auto-assign
       socketRef.current?.emit("join-room", { roomId });
       setIsInCall(true);
       setIsMuted(false);
+
+      // Request notification permission
+      requestNotificationPermission();
 
       setTimeout(() => {
         startAudioStreaming(stream);
@@ -547,6 +611,12 @@ export default function VoiceCall() {
 
     stopAudioStreaming();
 
+    if (alertAudioRef.current) {
+      alertAudioRef.current.pause();
+    }
+
+    document.title = "Voice Call";
+
     setIsInCall(false);
     setIsRecording(false);
     setIsMuted(false);
@@ -556,9 +626,11 @@ export default function VoiceCall() {
     setIsProtected(false);
     setCurrentScamAlert(null);
     setShowScamAlert(false);
+    setShowDangerBanner(false);
+    setAlertCount(0);
   };
 
-  const playAlertSound = () => {
+  const playAlertSound = (continuous: boolean = false) => {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
@@ -566,18 +638,83 @@ export default function VoiceCall() {
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
     
-    oscillator.frequency.value = 800;
+    // High-pitched alarm sound
+    oscillator.frequency.value = 1200;
     oscillator.type = 'sine';
     
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
     
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
+    if (continuous) {
+      // Create repeating alarm pattern
+      let time = audioContext.currentTime;
+      for (let i = 0; i < 6; i++) {
+        oscillator.frequency.setValueAtTime(1200, time);
+        oscillator.frequency.setValueAtTime(800, time + 0.2);
+        time += 0.4;
+      }
+      gainNode.gain.exponentialRampToValueAtTime(0.01, time);
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(time);
+    } else {
+      // Single beep
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    }
+  };
+
+  const flashFavicon = () => {
+    const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (link) {
+      const originalHref = link.href;
+      let count = 0;
+      const interval = setInterval(() => {
+        link.href = count % 2 === 0 ? 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚨</text></svg>' : originalHref;
+        count++;
+        if (count > 10) {
+          clearInterval(interval);
+          link.href = originalHref;
+        }
+      }, 500);
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  };
+
+  const showNotification = (title: string, body: string) => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, {
+        body,
+        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚨</text></svg>",
+        badge: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚨</text></svg>",
+        requireInteraction: true,
+      });
+    }
+  };
+
+  const getFraudRecommendation = (riskLevel: string, patterns: string[]): string => {
+    if (riskLevel === "HIGH") {
+      return "🚨 HIGH RISK DETECTED - END THIS CALL IMMEDIATELY! This appears to be a scam. Hang up and verify through official channels.";
+    } else if (riskLevel === "MEDIUM") {
+      return "⚠️ Be extremely cautious. Do not share personal information, money, or account details. Verify the caller's identity independently.";
+    } else {
+      return "ℹ️ Conversation appears normal. Continue monitoring.";
+    }
   };
 
   const dismissScamAlert = () => {
     setShowScamAlert(false);
+    if (alertAudioRef.current) {
+      alertAudioRef.current.pause();
+    }
+  };
+
+  const dismissDangerBanner = () => {
+    setShowDangerBanner(false);
   };
 
   const getRiskColor = (level: string) => {
@@ -590,187 +727,332 @@ export default function VoiceCall() {
   };
 
   return (
-    <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto" }}>
-      <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Scam Detection</h1>
-
-      {/* Role indicator */}
-      {isInCall && userRole && (
-        <div style={{ 
-          padding: "15px", 
-          background: isProtected ? "#d4edda" : "#d1ecf1", 
-          borderRadius: "8px", 
-          marginBottom: "20px",
-          border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
-        }}>
-          <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-          {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams</div>}
-        </div>
-      )}
-
-      {/* Scam Alert Modal */}
-      {showScamAlert && currentScamAlert && isProtected && (
+    <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto", position: "relative" }}>
+      {/* Persistent Danger Banner */}
+      {showDangerBanner && currentScamAlert && isProtected && (
         <div style={{
           position: "fixed",
           top: 0,
           left: 0,
           right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.8)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
+          background: currentScamAlert.riskLevel === "HIGH" ? "#dc3545" : "#ffc107",
+          color: "white",
+          padding: "20px",
+          zIndex: 999,
+          animation: "slideDown 0.5s ease-out, pulse 2s infinite",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+          borderBottom: "4px solid " + (currentScamAlert.riskLevel === "HIGH" ? "#a02030" : "#d39e00"),
         }}>
-          <div style={{
-            background: "white",
-            padding: "30px",
-            borderRadius: "12px",
-            maxWidth: "500px",
-            border: `4px solid ${getRiskColor(currentScamAlert.riskLevel)}`,
-            animation: currentScamAlert.riskLevel === "HIGH" ? "shake 0.5s" : "none",
-          }}>
-            <h2 style={{ 
-              color: getRiskColor(currentScamAlert.riskLevel),
-              marginBottom: "20px",
-              fontSize: "28px"
-            }}>
-              {currentScamAlert.riskLevel === "HIGH" && "🚨 SCAM ALERT! 🚨"}
-              {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ Warning"}
-              {currentScamAlert.riskLevel === "LOW" && "ℹ️ Notice"}
-            </h2>
-            
-            <div style={{ marginBottom: "20px" }}>
-              <strong>Risk Score:</strong>
-              <div style={{
-                fontSize: "36px",
-                fontWeight: "bold",
-                color: getRiskColor(currentScamAlert.riskLevel),
-                margin: "10px 0"
-              }}>
-                {currentScamAlert.scamProbability}%
+          <div style={{ maxWidth: "800px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "8px" }}>
+                {currentScamAlert.riskLevel === "HIGH" && "🚨 DANGER - POTENTIAL SCAM DETECTED 🚨"}
+                {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ WARNING - SUSPICIOUS ACTIVITY"}
+              </div>
+              <div style={{ fontSize: "18px", fontWeight: "bold" }}>
+                Fraud Risk: {currentScamAlert.scamProbability}%
+              </div>
+              <div style={{ fontSize: "14px", marginTop: "5px" }}>
+                {currentScamAlert.riskLevel === "HIGH" 
+                  ? "Consider ending this call immediately!" 
+                  : "Be very careful with this conversation"}
               </div>
             </div>
-
-            <div style={{ marginBottom: "15px" }}>
-              <strong>Summary:</strong>
-              <p>{currentScamAlert.summary}</p>
-            </div>
-
-            {currentScamAlert.concerns.length > 0 && (
-              <div style={{ marginBottom: "15px" }}>
-                <strong>⚠️ Red Flags Detected:</strong>
-                <ul style={{ marginTop: "5px", paddingLeft: "20px" }}>
-                  {currentScamAlert.concerns.map((concern, i) => (
-                    <li key={i}>{concern}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div style={{ 
-              marginTop: "20px", 
-              padding: "15px", 
-              background: "#fff3cd",
-              borderRadius: "8px",
-              border: "1px solid #ffc107"
-            }}>
-              <strong>📋 Recommended Action:</strong>
-              <p style={{ marginTop: "5px" }}>{currentScamAlert.recommendedAction}</p>
-            </div>
-
             <button
-              onClick={dismissScamAlert}
+              onClick={dismissDangerBanner}
               style={{
-                marginTop: "20px",
-                padding: "12px 24px",
-                fontSize: "16px",
-                backgroundColor: "#6c757d",
+                background: "rgba(255,255,255,0.3)",
+                border: "2px solid white",
                 color: "white",
-                border: "none",
+                padding: "8px 16px",
                 borderRadius: "4px",
                 cursor: "pointer",
-                width: "100%"
+                fontSize: "14px",
+                fontWeight: "bold",
+                marginLeft: "20px",
               }}
             >
-              Dismiss
+              ✕
             </button>
           </div>
         </div>
       )}
 
-      <div style={{ padding: "10px", background: "#f0f0f0", borderRadius: "4px", marginBottom: "20px", fontSize: "14px" }}>
-        <strong>Connection Status:</strong> {connectionStatus}
-        {socketRef.current && <span> | Socket ID: {socketRef.current.id}</span>}
-        {isRecording && <span> | 🎤 Recording</span>}
-        {isMuted && <span> | 🔇 Muted</span>}
-        {isProtected && <span> | 🛡️ Protected</span>}
-      </div>
+      <div style={{ marginTop: showDangerBanner ? "120px" : "0" }}>
+        <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Scam Detection</h1>
 
-      {!isInCall ? (
-        <div style={{ marginBottom: "30px" }}>
-          <input
-            type="text"
-            placeholder="Enter Room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            style={{ padding: "12px", fontSize: "16px", width: "300px", marginRight: "10px", border: "2px solid #ddd", borderRadius: "4px" }}
-          />
-          <button
-            onClick={startCall}
-            style={{ padding: "12px 24px", fontSize: "16px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
-          >
-            Start Call
-          </button>
+        {/* Alert Counter */}
+        {isProtected && alertCount > 0 && (
+          <div style={{
+            padding: "10px",
+            background: alertCount > 2 ? "#dc3545" : "#ffc107",
+            color: "white",
+            borderRadius: "8px",
+            marginBottom: "15px",
+            textAlign: "center",
+            fontWeight: "bold",
+            animation: alertCount > 2 ? "pulse 1.5s infinite" : "none",
+          }}>
+            {alertCount === 1 && "⚠️ 1 Alert Detected"}
+            {alertCount > 1 && `🚨 ${alertCount} Alerts Detected - Be Very Careful!`}
+          </div>
+        )}
 
-          <PermissionStatus
-            status={permissionStatus}
-            onRequestPermission={requestMicrophonePermission}
-            onTestMicrophone={testMicrophone}
-            devices={availableDevices}
-          />
-        </div>
-      ) : (
-        <CallControls roomId={roomId} isMuted={isMuted} isRecording={isRecording} onToggleMute={toggleMute} onEndCall={endCall} />
-      )}
+        {/* Role indicator */}
+        {isInCall && userRole && (
+          <div style={{ 
+            padding: "15px", 
+            background: isProtected ? "#d4edda" : "#d1ecf1", 
+            borderRadius: "8px", 
+            marginBottom: "20px",
+            border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
+          }}>
+            <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
+            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams</div>}
+          </div>
+        )}
 
-      <audio ref={localAudioRef} autoPlay muted playsInline />
-      <audio ref={remoteAudioRef} autoPlay playsInline />
-
-      <TranscriptDisplay transcripts={transcripts} />
-      
-      {/* Scam History */}
-      {isProtected && scamHistory.length > 0 && (
-        <div style={{ marginTop: "30px" }}>
-          <h3>📊 Scam Detection History</h3>
-          {scamHistory.slice(0, 5).map((alert, index) => (
-            <div key={index} style={{
-              padding: "15px",
-              margin: "10px 0",
-              background: "#f8f9fa",
-              borderRadius: "8px",
-              borderLeft: `4px solid ${getRiskColor(alert.riskLevel)}`
+        {/* Scam Alert Modal */}
+        {showScamAlert && currentScamAlert && isProtected && (
+          <div style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.9)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}>
+            <div style={{
+              background: "white",
+              padding: "40px",
+              borderRadius: "16px",
+              maxWidth: "600px",
+              maxHeight: "90vh",
+              overflow: "auto",
+              border: `6px solid ${getRiskColor(currentScamAlert.riskLevel)}`,
+              animation: currentScamAlert.riskLevel === "HIGH" ? "shake 0.5s, pulse 2s infinite" : "slideDown 0.5s",
+              boxShadow: `0 0 40px ${getRiskColor(currentScamAlert.riskLevel)}`,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                <strong style={{ color: getRiskColor(alert.riskLevel) }}>
-                  {alert.riskLevel} RISK ({alert.scamProbability}%)
-                </strong>
-                <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
+              <h2 style={{ 
+                color: getRiskColor(currentScamAlert.riskLevel),
+                marginBottom: "20px",
+                fontSize: "32px",
+                textAlign: "center",
+              }}>
+                {currentScamAlert.riskLevel === "HIGH" && "🚨 SCAM ALERT! 🚨"}
+                {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ WARNING"}
+                {currentScamAlert.riskLevel === "LOW" && "ℹ️ Notice"}
+              </h2>
+              
+              <div style={{ 
+                marginBottom: "25px",
+                background: getRiskColor(currentScamAlert.riskLevel),
+                color: "white",
+                padding: "20px",
+                borderRadius: "12px",
+              }}>
+                <strong style={{ fontSize: "18px" }}>Fraud Risk Score:</strong>
+                <div style={{
+                  fontSize: "48px",
+                  fontWeight: "bold",
+                  margin: "10px 0",
+                  textAlign: "center",
+                }}>
+                  {currentScamAlert.scamProbability}%
+                </div>
+                <div style={{ fontSize: "16px", textAlign: "center" }}>
+                  {currentScamAlert.riskLevel} RISK
+                </div>
               </div>
-              <div style={{ fontSize: "14px" }}>{alert.summary}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      <Instructions />
-      
-      <style jsx>{`
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-10px); }
-          75% { transform: translateX(10px); }
-        }
-      `}</style>
+              <div style={{ marginBottom: "20px", fontSize: "16px" }}>
+                <strong style={{ fontSize: "18px" }}>What's Happening:</strong>
+                <p style={{ marginTop: "8px", lineHeight: "1.6" }}>{currentScamAlert.summary}</p>
+              </div>
+
+              {currentScamAlert.concerns.length > 0 && (
+                <div style={{ 
+                  marginBottom: "20px",
+                  background: "#fff3cd",
+                  padding: "15px",
+                  borderRadius: "8px",
+                  border: "2px solid #ffc107",
+                }}>
+                  <strong style={{ fontSize: "18px" }}>🚩 Red Flags Detected:</strong>
+                  <ul style={{ marginTop: "10px", paddingLeft: "20px", lineHeight: "1.8" }}>
+                    {currentScamAlert.concerns.map((concern, i) => (
+                      <li key={i} style={{ fontSize: "15px", marginBottom: "8px" }}>{concern}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div style={{ 
+                marginTop: "25px", 
+                padding: "20px", 
+                background: currentScamAlert.riskLevel === "HIGH" ? "#dc3545" : "#fff3cd",
+                color: currentScamAlert.riskLevel === "HIGH" ? "white" : "#000",
+                borderRadius: "12px",
+                border: `3px solid ${currentScamAlert.riskLevel === "HIGH" ? "#a02030" : "#ffc107"}`,
+              }}>
+                <strong style={{ fontSize: "18px" }}>📋 RECOMMENDED ACTION:</strong>
+                <p style={{ marginTop: "10px", fontSize: "16px", fontWeight: "bold", lineHeight: "1.6" }}>
+                  {currentScamAlert.recommendedAction}
+                </p>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "25px" }}>
+                {currentScamAlert.riskLevel === "HIGH" && (
+                  <button
+                    onClick={endCall}
+                    style={{
+                      flex: 1,
+                      padding: "16px",
+                      fontSize: "18px",
+                      fontWeight: "bold",
+                      backgroundColor: "#dc3545",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      animation: "pulse 1.5s infinite",
+                    }}
+                  >
+                    🚨 END CALL NOW
+                  </button>
+                )}
+                <button
+                  onClick={dismissScamAlert}
+                  style={{
+                    flex: 1,
+                    padding: "16px",
+                    fontSize: "16px",
+                    backgroundColor: "#6c757d",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Continue & Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ padding: "10px", background: "#f0f0f0", borderRadius: "4px", marginBottom: "20px", fontSize: "14px" }}>
+          <strong>Connection Status:</strong> {connectionStatus}
+          {socketRef.current && <span> | Socket ID: {socketRef.current.id}</span>}
+          {isRecording && <span> | 🎤 Recording</span>}
+          {isMuted && <span> | 🔇 Muted</span>}
+          {isProtected && <span> | 🛡️ Protected</span>}
+        </div>
+
+        {!isInCall ? (
+          <div style={{ marginBottom: "30px" }}>
+            <input
+              type="text"
+              placeholder="Enter Room ID"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              style={{ padding: "12px", fontSize: "16px", width: "300px", marginRight: "10px", border: "2px solid #ddd", borderRadius: "4px" }}
+            />
+            <button
+              onClick={startCall}
+              style={{ padding: "12px 24px", fontSize: "16px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+            >
+              Start Call
+            </button>
+
+            <PermissionStatus
+              status={permissionStatus}
+              onRequestPermission={requestMicrophonePermission}
+              onTestMicrophone={testMicrophone}
+              devices={availableDevices}
+            />
+          </div>
+        ) : (
+          <CallControls roomId={roomId} isMuted={isMuted} isRecording={isRecording} onToggleMute={toggleMute} onEndCall={endCall} />
+        )}
+
+        <audio ref={localAudioRef} autoPlay muted playsInline />
+        <audio ref={remoteAudioRef} autoPlay playsInline />
+
+        <TranscriptDisplay transcripts={transcripts} />
+        
+        {/* Scam History */}
+        {isProtected && scamHistory.length > 0 && (
+          <div style={{ marginTop: "30px" }}>
+            <h3>📊 Scam Detection History ({scamHistory.length} total)</h3>
+            {scamHistory.slice(0, 5).map((alert, index) => (
+              <div key={index} style={{
+                padding: "15px",
+                margin: "10px 0",
+                background: "#f8f9fa",
+                borderRadius: "8px",
+                borderLeft: `6px solid ${getRiskColor(alert.riskLevel)}`,
+                animation: index === 0 ? "slideDown 0.5s" : "none",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+                  <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
+                    {alert.riskLevel} RISK ({alert.scamProbability}%)
+                  </strong>
+                  <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
+                </div>
+                <div style={{ fontSize: "14px", marginBottom: "8px" }}>{alert.summary}</div>
+                {alert.concerns.length > 0 && (
+                  <div style={{ fontSize: "13px", color: "#666" }}>
+                    <strong>Red Flags:</strong> {alert.concerns.slice(0, 2).join(", ")}
+                    {alert.concerns.length > 2 && ` +${alert.concerns.length - 2} more`}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Instructions />
+        
+        <style jsx>{`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+          }
+          
+          @keyframes pulse {
+            0%, 100% { 
+              transform: scale(1);
+              box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+            }
+            50% { 
+              transform: scale(1.05);
+              box-shadow: 0 0 0 20px rgba(220, 53, 69, 0);
+            }
+          }
+          
+          @keyframes flashBorder {
+            0%, 100% { border-color: #dc3545; }
+            50% { border-color: #ff6b6b; }
+          }
+          
+          @keyframes slideDown {
+            from {
+              transform: translateY(-100%);
+              opacity: 0;
+            }
+            to {
+              transform: translateY(0);
+              opacity: 1;
+            }
+          }
+        `}</style>
+      </div>
     </div>
   );
 }
