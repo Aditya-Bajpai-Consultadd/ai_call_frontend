@@ -9,6 +9,18 @@ import Instructions from "./components/Instructions";
 interface Transcript {
   text: string;
   speaker: string;
+  speakerRole?: string;
+  timestamp: string;
+}
+
+interface ScamAlert {
+  callerMessage: string;
+  summary: string;
+  scamProbability: number;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  concerns: string[];
+  reasoning: string;
+  recommendedAction: string;
   timestamp: string;
 }
 
@@ -23,6 +35,13 @@ export default function VoiceCall() {
   >("unknown");
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<string>("Disconnected");
+  
+  // NEW: Role and scam detection states
+  const [userRole, setUserRole] = useState<"user" | "caller" | null>(null);
+  const [isProtected, setIsProtected] = useState(false);
+  const [currentScamAlert, setCurrentScamAlert] = useState<ScamAlert | null>(null);
+  const [scamHistory, setScamHistory] = useState<ScamAlert[]>([]);
+  const [showScamAlert, setShowScamAlert] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -72,7 +91,7 @@ export default function VoiceCall() {
         console.log("Permissions API not supported");
         setPermissionStatus("unknown");
       }
-    };
+    }; 
 
     checkInitialPermissions();
     updateAvailableDevices();
@@ -97,17 +116,50 @@ export default function VoiceCall() {
       setConnectionStatus("Disconnected");
     });
 
-    socketRef.current.on("existing-users", async (users: string[]) => {
+    // NEW: Listen for role assignment
+    socketRef.current.on("role-assigned", (data: { role: "user" | "caller"; socketId: string; isProtected: boolean }) => {
+      console.log("👤 Role assigned:", data.role);
+      setUserRole(data.role);
+      setIsProtected(data.isProtected);
+      
+      if (data.isProtected) {
+        console.log("🛡️ You are being protected from scams");
+      } else {
+        console.log("📞 You are the caller");
+      }
+    });
+
+    // NEW: Listen for scam alerts (only USER receives these)
+    socketRef.current.on("scam-alert", (alert: ScamAlert) => {
+      console.log("🚨 SCAM ALERT RECEIVED:", alert);
+      setCurrentScamAlert(alert);
+      setScamHistory(prev => [alert, ...prev]);
+      setShowScamAlert(true);
+      
+      // Play alert sound for high risk
+      if (alert.riskLevel === "HIGH") {
+        playAlertSound();
+        // Optionally vibrate on mobile
+        if (navigator.vibrate) {
+          navigator.vibrate([200, 100, 200]);
+        }
+      }
+    });
+
+    socketRef.current.on("existing-users", async (users: any[]) => {
       console.log("👥 Existing users in room:", users);
       setTimeout(async () => {
-        for (const userId of users) {
+        for (const user of users) {
+          const userId = typeof user === 'string' ? user : user.socketId;
           await createOffer(userId);
         }
       }, 500);
     });
 
-    socketRef.current.on("user-joined", async (userId: string) => {
-      console.log("🆕 New user joined:", userId);
+    socketRef.current.on("user-joined", async (data: any) => {
+      const userId = typeof data === 'string' ? data : data.socketId;
+      const role = typeof data === 'object' ? data.role : undefined;
+      console.log("🆕 New user joined:", userId, "Role:", role);
     });
 
     socketRef.current.on("offer", async (data: { offer: RTCSessionDescriptionInit; from: string }) => {
@@ -125,13 +177,15 @@ export default function VoiceCall() {
       await handleIceCandidate(data.candidate, data.from);
     });
 
-    socketRef.current.on("transcript", (data: { text: string; speaker: string; timestamp: string }) => {
+    socketRef.current.on("transcript", (data: { text: string; speaker: string; speakerRole?: string; timestamp: string }) => {
       console.log("📝 Received transcript:", data);
+      const displayRole = data.speakerRole === "user" ? "You" : "Caller";
       setTranscripts((prev) => [
         ...prev,
         {
           text: data.text,
-          speaker: "Caller",
+          speaker: displayRole,
+          speakerRole: data.speakerRole,
           timestamp: data.timestamp,
         },
       ]);
@@ -270,7 +324,8 @@ export default function VoiceCall() {
       }
 
       console.log("📞 Joining room:", roomId);
-      socketRef.current?.emit("join-room", roomId);
+      // Send room ID without specifying role - server will auto-assign
+      socketRef.current?.emit("join-room", { roomId });
       setIsInCall(true);
       setIsMuted(false);
 
@@ -497,17 +552,158 @@ export default function VoiceCall() {
     setIsMuted(false);
     setTranscripts([]);
     setConnectionStatus("Disconnected");
+    setUserRole(null);
+    setIsProtected(false);
+    setCurrentScamAlert(null);
+    setShowScamAlert(false);
+  };
+
+  const playAlertSound = () => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  };
+
+  const dismissScamAlert = () => {
+    setShowScamAlert(false);
+  };
+
+  const getRiskColor = (level: string) => {
+    switch (level) {
+      case "HIGH": return "#dc3545";
+      case "MEDIUM": return "#ffc107";
+      case "LOW": return "#28a745";
+      default: return "#6c757d";
+    }
   };
 
   return (
     <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto" }}>
-      <h1 style={{ marginBottom: "30px" }}>Voice Call with Real-time Transcription</h1>
+      <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Scam Detection</h1>
+
+      {/* Role indicator */}
+      {isInCall && userRole && (
+        <div style={{ 
+          padding: "15px", 
+          background: isProtected ? "#d4edda" : "#d1ecf1", 
+          borderRadius: "8px", 
+          marginBottom: "20px",
+          border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
+        }}>
+          <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
+          {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams</div>}
+        </div>
+      )}
+
+      {/* Scam Alert Modal */}
+      {showScamAlert && currentScamAlert && isProtected && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.8)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: "white",
+            padding: "30px",
+            borderRadius: "12px",
+            maxWidth: "500px",
+            border: `4px solid ${getRiskColor(currentScamAlert.riskLevel)}`,
+            animation: currentScamAlert.riskLevel === "HIGH" ? "shake 0.5s" : "none",
+          }}>
+            <h2 style={{ 
+              color: getRiskColor(currentScamAlert.riskLevel),
+              marginBottom: "20px",
+              fontSize: "28px"
+            }}>
+              {currentScamAlert.riskLevel === "HIGH" && "🚨 SCAM ALERT! 🚨"}
+              {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ Warning"}
+              {currentScamAlert.riskLevel === "LOW" && "ℹ️ Notice"}
+            </h2>
+            
+            <div style={{ marginBottom: "20px" }}>
+              <strong>Risk Score:</strong>
+              <div style={{
+                fontSize: "36px",
+                fontWeight: "bold",
+                color: getRiskColor(currentScamAlert.riskLevel),
+                margin: "10px 0"
+              }}>
+                {currentScamAlert.scamProbability}%
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "15px" }}>
+              <strong>Summary:</strong>
+              <p>{currentScamAlert.summary}</p>
+            </div>
+
+            {currentScamAlert.concerns.length > 0 && (
+              <div style={{ marginBottom: "15px" }}>
+                <strong>⚠️ Red Flags Detected:</strong>
+                <ul style={{ marginTop: "5px", paddingLeft: "20px" }}>
+                  {currentScamAlert.concerns.map((concern, i) => (
+                    <li key={i}>{concern}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div style={{ 
+              marginTop: "20px", 
+              padding: "15px", 
+              background: "#fff3cd",
+              borderRadius: "8px",
+              border: "1px solid #ffc107"
+            }}>
+              <strong>📋 Recommended Action:</strong>
+              <p style={{ marginTop: "5px" }}>{currentScamAlert.recommendedAction}</p>
+            </div>
+
+            <button
+              onClick={dismissScamAlert}
+              style={{
+                marginTop: "20px",
+                padding: "12px 24px",
+                fontSize: "16px",
+                backgroundColor: "#6c757d",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+                width: "100%"
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: "10px", background: "#f0f0f0", borderRadius: "4px", marginBottom: "20px", fontSize: "14px" }}>
         <strong>Connection Status:</strong> {connectionStatus}
         {socketRef.current && <span> | Socket ID: {socketRef.current.id}</span>}
         {isRecording && <span> | 🎤 Recording</span>}
         {isMuted && <span> | 🔇 Muted</span>}
+        {isProtected && <span> | 🛡️ Protected</span>}
       </div>
 
       {!isInCall ? (
@@ -541,7 +737,40 @@ export default function VoiceCall() {
       <audio ref={remoteAudioRef} autoPlay playsInline />
 
       <TranscriptDisplay transcripts={transcripts} />
+      
+      {/* Scam History */}
+      {isProtected && scamHistory.length > 0 && (
+        <div style={{ marginTop: "30px" }}>
+          <h3>📊 Scam Detection History</h3>
+          {scamHistory.slice(0, 5).map((alert, index) => (
+            <div key={index} style={{
+              padding: "15px",
+              margin: "10px 0",
+              background: "#f8f9fa",
+              borderRadius: "8px",
+              borderLeft: `4px solid ${getRiskColor(alert.riskLevel)}`
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+                <strong style={{ color: getRiskColor(alert.riskLevel) }}>
+                  {alert.riskLevel} RISK ({alert.scamProbability}%)
+                </strong>
+                <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
+              </div>
+              <div style={{ fontSize: "14px" }}>{alert.summary}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Instructions />
+      
+      <style jsx>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-10px); }
+          75% { transform: translateX(10px); }
+        }
+      `}</style>
     </div>
   );
 }
