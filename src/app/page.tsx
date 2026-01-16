@@ -166,8 +166,8 @@ export default function VoiceCall() {
         console.log("ℹ️ This is analysis of my own message");
       }
       
-      // ⚠️ ONLY SHOW ALARMS FOR HIGH RISK (>85%) FROM OTHER USERS
-      if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore > 85) {
+      // ⚠️ ONLY SHOW ALARMS FOR HIGH RISK (>80%) FROM OTHER USERS
+      if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore > 80) {
         // 🔒 CHECK COOLDOWN: If this user was recently dismissed, ignore for 7 seconds
         const now = Date.now();
         const lastDismissed = dismissedUsers.get(data.speaker);
@@ -179,7 +179,7 @@ export default function VoiceCall() {
           return; // Exit without showing alarm
         }
         
-        console.log("🚨 HIGH RISK FRAUD DETECTED (>85%) - TRIGGERING FULL ALERT");
+        console.log("🚨 HIGH RISK FRAUD DETECTED (>80%) - TRIGGERING FULL ALERT");
         
         // Create fraud alert
         const alert: ScamAlert = {
@@ -227,9 +227,9 @@ export default function VoiceCall() {
           "🚨 SCAM ALERT!", 
           `High fraud risk detected from other user!\nFraud Score: ${data.fraudScore}%\n${data.summary}`
         );
-      } else if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore <= 85) {
+      } else if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore <= 80) {
         // Log HIGH risk but below threshold - no alarm
-        console.log(`⚠️ HIGH risk detected (${data.fraudScore}%) but below 85% threshold - no alarm triggered`);
+        console.log(`⚠️ HIGH risk detected (${data.fraudScore}%) but below 80% threshold - no alarm triggered`);
       } else if (isAboutSomeoneElse && (data.riskLevel === "MEDIUM" || data.riskLevel === "LOW")) {
         // Log MEDIUM/LOW risk - no alarm
         console.log(`ℹ️ ${data.riskLevel} risk detected (${data.fraudScore}%) - no alarm triggered`);
@@ -836,8 +836,8 @@ export default function VoiceCall() {
 
   return (
     <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto", position: "relative" }}>
-      {/* Persistent Danger Banner - Only show for HIGH RISK >85% about OTHER users */}
-      {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 85 && (
+      {/* Persistent Danger Banner - Only show for HIGH RISK >80% about OTHER users */}
+      {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 0 && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -887,7 +887,7 @@ export default function VoiceCall() {
       <div style={{ marginTop: showDangerBanner ? "120px" : "0" }}>
         <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Fraud Detection</h1>
 
-        {/* Alert Counter - Only count HIGH RISK >85% alerts about OTHER users */}
+        {/* Alert Counter - Only count HIGH RISK >80% alerts about OTHER users */}
         {alertCount > 0 && (
           <div style={{
             padding: "10px",
@@ -899,8 +899,8 @@ export default function VoiceCall() {
             fontWeight: "bold",
             animation: "pulse 1.5s infinite",
           }}>
-            {alertCount === 1 && "🚨 HIGH RISK Fraud Alert Detected (>85%)"}
-            {alertCount > 1 && `🚨 ${alertCount} HIGH RISK Fraud Alerts Detected (>85%) - Be Very Careful!`}
+            {alertCount === 1 && "🚨 HIGH RISK Fraud Alert Detected (>80%)"}
+            {alertCount > 1 && `🚨 ${alertCount} HIGH RISK Fraud Alerts Detected (>80%) - Be Very Careful!`}
           </div>
         )}
 
@@ -914,12 +914,12 @@ export default function VoiceCall() {
             border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
           }}>
             <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk &gt;85% will trigger alerts)</div>}
+            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk &gt;80% will trigger alerts)</div>}
           </div>
         )}
 
-        {/* Scam Alert Modal - Only show for HIGH RISK >85% about OTHER users */}
-        {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 85 && (
+        {/* Scam Alert Modal - Only show for HIGH RISK >80% about OTHER users */}
+        {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 80 && (
           <div style={{
             position: "fixed",
             top: 0,
@@ -982,7 +982,7 @@ export default function VoiceCall() {
                   {currentScamAlert.scamProbability}%
                 </div>
                 <div style={{ fontSize: "16px", textAlign: "center" }}>
-                  HIGH RISK (Above 85% threshold)
+                  HIGH RISK (Above 80% threshold)
                 </div>
                 {currentScamAlert.kbEnhanced && (
                   <div style={{ fontSize: "14px", textAlign: "center", marginTop: "8px" }}>
@@ -1118,7 +1118,7 @@ export default function VoiceCall() {
 
         {/* Removed TranscriptDisplay component - transcripts only logged to console */}
         
-        {/* Removed Scam History section - only HIGH RISK >85% alerts shown in modal */}
+        {/* Removed Scam History section - only HIGH RISK >80% alerts shown in modal */}
 
         <Instructions />
         
