@@ -1108,9 +1108,12 @@ export default function VoiceCall() {
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
                   <div>
-                    <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
-                      {alert.riskLevel} RISK ({alert.scamProbability}%)
-                    </strong>
+                    {
+                      alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe &&
+                        <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
+                          {alert.riskLevel} RISK ({alert.scamProbability}%)
+                        </strong>
+                    }
                     {alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe && (
                       <span style={{ 
                         marginLeft: "10px", 
