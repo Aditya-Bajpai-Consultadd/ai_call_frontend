@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import PermissionStatus from "./components/PermissionStatus";
 import CallControls from "./components/CallControls";
-import TranscriptDisplay from "./components/TranscriptDelay";
 import Instructions from "./components/Instructions";
 
 interface Transcript {
@@ -166,29 +165,29 @@ export default function VoiceCall() {
         console.log("ℹ️ This is analysis of my own message");
       }
       
-      // Create fraud alert for history tracking (all levels)
-      const alert: ScamAlert = {
-        speaker: data.speaker,
-        callerMessage: data.message,
-        summary: data.summary,
-        scamProbability: data.fraudScore,
-        riskLevel: data.riskLevel,
-        concerns: data.redFlags,
-        reasoning: data.reasoning,
-        recommendedAction: getFraudRecommendation(data.riskLevel, data.matchedPatterns),
-        timestamp: data.timestamp,
-        kbEnhanced: data.kbEnhanced,
-        kbMatches: data.kbMatches,
-        confidence: data.confidence.explanation,
-        isAboutMe: !isAboutSomeoneElse,
-      };
-      
-      setCurrentScamAlert(alert);
-      setScamHistory(prev => [alert, ...prev]);
-      
       // ⚠️ ONLY SHOW ALARMS FOR HIGH RISK (>85%) FROM OTHER USERS
       if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore > 85) {
         console.log("🚨 HIGH RISK FRAUD DETECTED (>85%) - TRIGGERING FULL ALERT");
+        
+        // Create fraud alert
+        const alert: ScamAlert = {
+          speaker: data.speaker,
+          callerMessage: data.message,
+          summary: data.summary,
+          scamProbability: data.fraudScore,
+          riskLevel: data.riskLevel,
+          concerns: data.redFlags,
+          reasoning: data.reasoning,
+          recommendedAction: getFraudRecommendation(data.riskLevel, data.matchedPatterns),
+          timestamp: data.timestamp,
+          kbEnhanced: data.kbEnhanced,
+          kbMatches: data.kbMatches,
+          confidence: data.confidence.explanation,
+          isAboutMe: !isAboutSomeoneElse,
+        };
+        
+        setCurrentScamAlert(alert);
+        setScamHistory(prev => [alert, ...prev]);
         setShowScamAlert(true);
         setAlertCount(prev => prev + 1);
         setShowDangerBanner(true);
@@ -241,18 +240,15 @@ export default function VoiceCall() {
       timestamp: string;
     }) => {
       console.log("🔄 Conversation reset notification:", data);
-      // Optional: Show a brief notification to the user
       if (data.userId === socketRef.current?.id) {
         console.log("✅ Your conversation history has been reset");
       }
     });
 
-    // Listen for reset conversation success
     socketRef.current.on("reset-conversation-success", (data: any) => {
       console.log("✅ Reset conversation successful:", data);
     });
 
-    // Listen for reset conversation errors
     socketRef.current.on("reset-conversation-error", (data: { message: string }) => {
       console.error("❌ Reset conversation error:", data.message);
       alert(`Failed to reset conversation: ${data.message}`);
@@ -291,16 +287,7 @@ export default function VoiceCall() {
 
     socketRef.current.on("transcript", (data: { text: string; speaker: string; speakerRole?: string; timestamp: string }) => {
       console.log("📝 Received transcript:", data);
-      const displayRole = data.speakerRole === "user" ? "You" : "Caller";
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          text: data.text,
-          speaker: displayRole,
-          speakerRole: data.speakerRole,
-          timestamp: data.timestamp,
-        },
-      ]);
+      // Don't display transcripts in UI - only log to console
     });
 
     socketRef.current.on("user-left", (userId: string) => {
@@ -682,6 +669,7 @@ export default function VoiceCall() {
     setShowScamAlert(false);
     setShowDangerBanner(false);
     setAlertCount(0);
+    setScamHistory([]);
   };
 
   const playAlertSound = (continuous: boolean = false) => {
@@ -762,12 +750,29 @@ export default function VoiceCall() {
 
   const dismissScamAlert = () => {
     setShowScamAlert(false);
+    setShowDangerBanner(false);
+    setCurrentScamAlert(null);
+    setAlertCount(0);
+    setScamHistory([]);
+    
     if (alertAudioRef.current) {
       alertAudioRef.current.pause();
     }
     
+    // Reset page title and favicon
+    document.title = "Voice Call";
+    const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (link && link.href.includes('data:image')) {
+      // Reset to default if it's currently the alert icon
+      link.href = "/favicon.ico";
+    }
+    
     // Reset conversation when dismissing the alarm
-    resetConversationForSuspiciousUser();
+    if (currentScamAlert) {
+      resetConversationForSuspiciousUser();
+    }
+    
+    console.log("✅ UI cleared - all alerts and history dismissed");
   };
 
   const dismissDangerBanner = () => {
@@ -878,7 +883,7 @@ export default function VoiceCall() {
             border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
           }}>
             <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk 85% will trigger alerts)</div>}
+            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk &gt;85% will trigger alerts)</div>}
           </div>
         )}
 
@@ -1036,7 +1041,7 @@ export default function VoiceCall() {
                     cursor: "pointer",
                   }}
                 >
-                  Continue & Dismiss (Reset Conversation)
+                  Dismiss & Reset
                 </button>
               </div>
             </div>
@@ -1080,68 +1085,9 @@ export default function VoiceCall() {
         <audio ref={localAudioRef} autoPlay muted playsInline />
         <audio ref={remoteAudioRef} autoPlay playsInline />
 
-        {/* <TranscriptDisplay transcripts={transcripts} /> */}
+        {/* Removed TranscriptDisplay component - transcripts only logged to console */}
         
-        {/* Scam History - Show all alerts with visual distinction for HIGH RISK >85% */}
-        {scamHistory.length > 0 && (
-          <div style={{ marginTop: "30px" }}>
-            <h3>📊 Fraud Detection History ({scamHistory.length} total)</h3>
-            <div style={{ 
-              padding: "10px", 
-              background: "#fff3cd", 
-              borderRadius: "4px", 
-              marginBottom: "10px",
-              fontSize: "14px",
-              border: "1px solid #ffc107"
-            }}>
-              ℹ️ Only HIGH risk alerts above 85% trigger alarms and notifications. Dismissing an alarm resets that user's conversation context.
-            </div>
-            {scamHistory.slice(0, 10).map((alert, index) => (
-              <div key={index} style={{
-                padding: "15px",
-                margin: "10px 0",
-                background: alert.isAboutMe ? "#e7f3ff" : (alert.riskLevel === "HIGH" && alert.scamProbability > 85 ? "#ffe6e6" : "#f8f9fa"),
-                borderRadius: "8px",
-                borderLeft: `6px solid ${getRiskColor(alert.riskLevel)}`,
-                animation: index === 0 ? "slideDown 0.5s" : "none",
-                opacity: (alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe) ? 1 : 0.7,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                  <div>
-                    {
-                      alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe &&
-                        <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
-                          {alert.riskLevel} RISK ({alert.scamProbability}%)
-                        </strong>
-                    }
-                    {alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe && (
-                      <span style={{ 
-                        marginLeft: "10px", 
-                        padding: "2px 8px", 
-                        background: "#dc3545", 
-                        color: "white", 
-                        borderRadius: "4px",
-                        fontSize: "12px",
-                        fontWeight: "bold"
-                      }}>
-                        🚨 ALARM TRIGGERED
-                      </span>
-                    )}
-                
-                  </div>
-                  <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
-                </div>
-                <div style={{ fontSize: "14px", marginBottom: "8px" }}>{alert.summary}</div>
-                {alert.concerns.length > 0 && (
-                  <div style={{ fontSize: "13px", color: "#666" }}>
-                    <strong>Red Flags:</strong> {alert.concerns.slice(0, 2).join(", ")}
-                    {alert.concerns.length > 2 && ` +${alert.concerns.length - 2} more`}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Removed Scam History section - only HIGH RISK >85% alerts shown in modal */}
 
         <Instructions />
         
