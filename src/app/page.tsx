@@ -48,6 +48,7 @@ export default function VoiceCall() {
   const [showScamAlert, setShowScamAlert] = useState(false);
   const [showDangerBanner, setShowDangerBanner] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
+  const [dismissedUsers, setDismissedUsers] = useState<Map<string, number>>(new Map());
 
   const socketRef = useRef<Socket | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -167,6 +168,17 @@ export default function VoiceCall() {
       
       // ⚠️ ONLY SHOW ALARMS FOR HIGH RISK (>85%) FROM OTHER USERS
       if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore > 85) {
+        // 🔒 CHECK COOLDOWN: If this user was recently dismissed, ignore for 7 seconds
+        const now = Date.now();
+        const lastDismissed = dismissedUsers.get(data.speaker);
+        
+        if (lastDismissed && (now - lastDismissed) < 7000) {
+          const remainingSeconds = Math.ceil((7000 - (now - lastDismissed)) / 1000);
+          console.log(`⏳ COOLDOWN ACTIVE: Ignoring alarm for user ${data.speaker} (${remainingSeconds}s remaining)`);
+          console.log(`   Fraud Score: ${data.fraudScore}% - Would trigger alarm but in cooldown period`);
+          return; // Exit without showing alarm
+        }
+        
         console.log("🚨 HIGH RISK FRAUD DETECTED (>85%) - TRIGGERING FULL ALERT");
         
         // Create fraud alert
@@ -670,6 +682,7 @@ export default function VoiceCall() {
     setShowDangerBanner(false);
     setAlertCount(0);
     setScamHistory([]);
+    setDismissedUsers(new Map()); // Clear cooldown map
   };
 
   const playAlertSound = (continuous: boolean = false) => {
@@ -749,6 +762,24 @@ export default function VoiceCall() {
   };
 
   const dismissScamAlert = () => {
+    // Record the dismiss timestamp for this user (7-second cooldown)
+    if (currentScamAlert) {
+      const updatedDismissedUsers = new Map(dismissedUsers);
+      updatedDismissedUsers.set(currentScamAlert.speaker, Date.now());
+      setDismissedUsers(updatedDismissedUsers);
+      
+      console.log(`⏳ COOLDOWN STARTED: User ${currentScamAlert.speaker} alarms suppressed for 7 seconds`);
+      
+      // Auto-remove from cooldown after 7 seconds
+      setTimeout(() => {
+        setDismissedUsers(prev => {
+          const updated = new Map(prev);
+          updated.delete(currentScamAlert.speaker);
+          return updated;
+        });
+      }, 7000);
+    }
+    
     setShowScamAlert(false);
     setShowDangerBanner(false);
     setCurrentScamAlert(null);
