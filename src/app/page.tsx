@@ -234,6 +234,30 @@ export default function VoiceCall() {
       }
     });
 
+    // Listen for conversation reset notifications
+    socketRef.current.on("conversation-reset-notification", (data: {
+      userId: string;
+      resetBy: string;
+      timestamp: string;
+    }) => {
+      console.log("🔄 Conversation reset notification:", data);
+      // Optional: Show a brief notification to the user
+      if (data.userId === socketRef.current?.id) {
+        console.log("✅ Your conversation history has been reset");
+      }
+    });
+
+    // Listen for reset conversation success
+    socketRef.current.on("reset-conversation-success", (data: any) => {
+      console.log("✅ Reset conversation successful:", data);
+    });
+
+    // Listen for reset conversation errors
+    socketRef.current.on("reset-conversation-error", (data: { message: string }) => {
+      console.error("❌ Reset conversation error:", data.message);
+      alert(`Failed to reset conversation: ${data.message}`);
+    });
+
     socketRef.current.on("existing-users", async (users: any[]) => {
       console.log("👥 Existing users in room:", users);
       setTimeout(async () => {
@@ -741,10 +765,28 @@ export default function VoiceCall() {
     if (alertAudioRef.current) {
       alertAudioRef.current.pause();
     }
+    
+    // Reset conversation when dismissing the alarm
+    resetConversationForSuspiciousUser();
   };
 
   const dismissDangerBanner = () => {
     setShowDangerBanner(false);
+  };
+
+  // NEW: Reset conversation for the suspicious user
+  const resetConversationForSuspiciousUser = () => {
+    if (!socketRef.current || !currentScamAlert) {
+      console.error("❌ Cannot reset: No socket or alert");
+      return;
+    }
+
+    console.log("🔄 Requesting conversation reset for user:", currentScamAlert.speaker);
+    
+    socketRef.current.emit("reset-conversation", {
+      roomId: roomId,
+      targetUserId: currentScamAlert.speaker, // Reset the suspicious user's conversation
+    });
   };
 
   const getRiskColor = (level: string) => {
@@ -836,7 +878,7 @@ export default function VoiceCall() {
             border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
           }}>
             <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk >85% will trigger alerts)</div>}
+            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk 85% will trigger alerts)</div>}
           </div>
         )}
 
@@ -994,7 +1036,7 @@ export default function VoiceCall() {
                     cursor: "pointer",
                   }}
                 >
-                  Continue & Dismiss
+                  Continue & Dismiss (Reset Conversation)
                 </button>
               </div>
             </div>
@@ -1052,7 +1094,7 @@ export default function VoiceCall() {
               fontSize: "14px",
               border: "1px solid #ffc107"
             }}>
-              ℹ️ Only HIGH risk alerts above 85% trigger alarms and notifications
+              ℹ️ Only HIGH risk alerts above 85% trigger alarms and notifications. Dismissing an alarm resets that user's conversation context.
             </div>
             {scamHistory.slice(0, 10).map((alert, index) => (
               <div key={index} style={{
@@ -1082,14 +1124,7 @@ export default function VoiceCall() {
                         🚨 ALARM TRIGGERED
                       </span>
                     )}
-                    {alert.kbEnhanced && (
-                      <span style={{ fontSize: "12px", marginLeft: "10px", color: "#666" }}>
-                        ✓ KB Enhanced ({alert.kbMatches})
-                      </span>
-                    )}
-                    <div style={{ fontSize: "13px", color: "#666", marginTop: "4px" }}>
-                      {alert.isAboutMe ? "📝 Your message" : `⚠️ From user ${alert.speaker}`}
-                    </div>
+                
                   </div>
                   <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
                 </div>
