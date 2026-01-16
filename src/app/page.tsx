@@ -14,6 +14,7 @@ interface Transcript {
 }
 
 interface ScamAlert {
+  speaker: string; // WHO committed the fraud
   callerMessage: string;
   summary: string;
   scamProbability: number;
@@ -22,6 +23,10 @@ interface ScamAlert {
   reasoning: string;
   recommendedAction: string;
   timestamp: string;
+  kbEnhanced: boolean;
+  kbMatches: number;
+  confidence: string;
+  isAboutMe: boolean; // Is this alert about my own message?
 }
 
 export default function VoiceCall() {
@@ -36,7 +41,7 @@ export default function VoiceCall() {
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<string>("Disconnected");
   
-  // NEW: Role and scam detection states
+  // Role and scam detection states
   const [userRole, setUserRole] = useState<"user" | "caller" | null>(null);
   const [isProtected, setIsProtected] = useState(false);
   const [currentScamAlert, setCurrentScamAlert] = useState<ScamAlert | null>(null);
@@ -119,7 +124,7 @@ export default function VoiceCall() {
       setConnectionStatus("Disconnected");
     });
 
-    // NEW: Listen for role assignment
+    // Listen for role assignment
     socketRef.current.on("role-assigned", (data: { role: "user" | "caller"; socketId: string; isProtected: boolean }) => {
       console.log("👤 Role assigned:", data.role);
       setUserRole(data.role);
@@ -132,7 +137,7 @@ export default function VoiceCall() {
       }
     });
 
-    // NEW: Listen for fraud scores (everyone receives)
+    // 🚨 CRITICAL: Listen for fraud scores (EVERYONE in room receives this)
     socketRef.current.on("fraud-score", (data: {
       speaker: string;
       message: string;
@@ -142,12 +147,27 @@ export default function VoiceCall() {
       redFlags: string[];
       reasoning: string;
       matchedPatterns: string[];
+      kbEnhanced: boolean;
+      kbMatches: number;
+      confidence: { final: number; base: number; kbBoost: number; explanation: string };
       timestamp: string;
     }) => {
       console.log("📊 FRAUD SCORE RECEIVED:", data);
+      console.log("   Speaker who was analyzed:", data.speaker);
+      console.log("   My socket ID:", socketRef.current?.id);
       
-      // Show fraud alert
+      // Check if this is about someone else (not me)
+      const isAboutSomeoneElse = data.speaker !== socketRef.current?.id;
+      
+      if (isAboutSomeoneElse) {
+        console.log("⚠️ FRAUD ALERT: Another user may be attempting fraud!");
+      } else {
+        console.log("ℹ️ This is analysis of my own message");
+      }
+      
+      // Create fraud alert
       const alert: ScamAlert = {
+        speaker: data.speaker,
         callerMessage: data.message,
         summary: data.summary,
         scamProbability: data.fraudScore,
@@ -156,51 +176,74 @@ export default function VoiceCall() {
         reasoning: data.reasoning,
         recommendedAction: getFraudRecommendation(data.riskLevel, data.matchedPatterns),
         timestamp: data.timestamp,
+        kbEnhanced: data.kbEnhanced,
+        kbMatches: data.kbMatches,
+        confidence: data.confidence.explanation,
+        isAboutMe: !isAboutSomeoneElse,
       };
       
       setCurrentScamAlert(alert);
-      
       setScamHistory(prev => [alert, ...prev]);
       
-      setShowScamAlert(true);
-      setAlertCount(prev => prev + 1);
-      
-      // Show danger banner for HIGH and MEDIUM risk
-      if (data.riskLevel === "HIGH" || data.riskLevel === "MEDIUM") {
-        setShowDangerBanner(true);
+      // Only show prominent alerts for OTHER users' fraud (not my own)
+      if (isAboutSomeoneElse) {
+        console.log("🚨 Showing alert about other user's potential fraud");
+        setShowScamAlert(true);
+        setAlertCount(prev => prev + 1);
+        
+        // Show danger banner for HIGH and MEDIUM risk
+        if (data.riskLevel === "HIGH" || data.riskLevel === "MEDIUM") {
+          setShowDangerBanner(true);
+        }
+        
+        // Enhanced alerts for HIGH risk from others
+        if (data.riskLevel === "HIGH") {
+          console.log("🚨 HIGH RISK FROM OTHER USER - TRIGGERING FULL ALERT");
+          
+          // Play continuous alert sound
+          playAlertSound(true);
+          
+          // Vibrate in SOS pattern
+          if (navigator.vibrate) {
+            navigator.vibrate([
+              200, 100, 200, 100, 200, 300,  // ... (short)
+              500, 100, 500, 100, 500, 300,  // --- (long)
+              200, 100, 200, 100, 200         // ... (short)
+            ]);
+          }
+          
+          // Change page title to alert
+          document.title = "🚨 SCAM ALERT! 🚨";
+          
+          // Flash the favicon
+          flashFavicon();
+          
+          // Show browser notification
+          showNotification(
+            "🚨 SCAM ALERT!", 
+            `High fraud risk detected from other user!\nFraud Score: ${data.fraudScore}%\n${data.summary}`
+          );
+          
+        } else if (data.riskLevel === "MEDIUM") {
+          console.log("⚠️ MEDIUM RISK FROM OTHER USER");
+          
+          // Single vibration for medium risk
+          if (navigator.vibrate) {
+            navigator.vibrate([300, 200, 300]);
+          }
+          playAlertSound(false);
+          document.title = "⚠️ Warning - Possible Scam";
+        }
+      } else {
+        // My own message was flagged - just log it
+        console.log(`ℹ️ Your message fraud score: ${data.fraudScore}% (${data.riskLevel})`);
+        // Could show a subtle indicator that your message was analyzed
       }
       
-      // Enhanced alerts for HIGH risk
-      if (data.riskLevel === "HIGH") {
-        // Play continuous alert sound
-        playAlertSound(true);
-        
-        // Vibrate in pattern (SOS: ... --- ...)
-        if (navigator.vibrate) {
-          // SOS pattern: short-short-short, long-long-long, short-short-short
-          navigator.vibrate([
-            200, 100, 200, 100, 200, 300,  // ... (short)
-            500, 100, 500, 100, 500, 300,  // --- (long)
-            200, 100, 200, 100, 200         // ... (short)
-          ]);
-        }
-        
-        // Change page title to alert
-        document.title = "🚨 SCAM ALERT! 🚨";
-        
-        // Flash the favicon
-        flashFavicon();
-        
-        // Show browser notification if permitted
-        showNotification("🚨 SCAM ALERT!", `High fraud risk detected: ${data.fraudScore}%`);
-        
-      } else if (data.riskLevel === "MEDIUM") {
-        // Single vibration for medium risk
-        if (navigator.vibrate) {
-          navigator.vibrate([300, 200, 300]);
-        }
-        playAlertSound(false);
-        document.title = "⚠️ Warning - Possible Scam";
+      // Log KB enhancement details
+      if (data.kbEnhanced) {
+        console.log(`✅ KB Enhanced: ${data.kbMatches} patterns matched`);
+        console.log(`   ${data.confidence.explanation}`);
       }
     });
 
@@ -728,8 +771,8 @@ export default function VoiceCall() {
 
   return (
     <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto", position: "relative" }}>
-      {/* Persistent Danger Banner */}
-      {showDangerBanner && currentScamAlert && isProtected && (
+      {/* Persistent Danger Banner - Only show for alerts about OTHER users */}
+      {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -750,7 +793,8 @@ export default function VoiceCall() {
                 {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ WARNING - SUSPICIOUS ACTIVITY"}
               </div>
               <div style={{ fontSize: "18px", fontWeight: "bold" }}>
-                Fraud Risk: {currentScamAlert.scamProbability}%
+                Fraud Risk: {currentScamAlert.scamProbability}% 
+                {currentScamAlert.kbEnhanced && ` (KB Enhanced: ${currentScamAlert.kbMatches} patterns)`}
               </div>
               <div style={{ fontSize: "14px", marginTop: "5px" }}>
                 {currentScamAlert.riskLevel === "HIGH" 
@@ -779,10 +823,10 @@ export default function VoiceCall() {
       )}
 
       <div style={{ marginTop: showDangerBanner ? "120px" : "0" }}>
-        <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Scam Detection</h1>
+        <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Fraud Detection</h1>
 
-        {/* Alert Counter */}
-        {isProtected && alertCount > 0 && (
+        {/* Alert Counter - Only count alerts about OTHER users */}
+        {alertCount > 0 && (
           <div style={{
             padding: "10px",
             background: alertCount > 2 ? "#dc3545" : "#ffc107",
@@ -793,8 +837,8 @@ export default function VoiceCall() {
             fontWeight: "bold",
             animation: alertCount > 2 ? "pulse 1.5s infinite" : "none",
           }}>
-            {alertCount === 1 && "⚠️ 1 Alert Detected"}
-            {alertCount > 1 && `🚨 ${alertCount} Alerts Detected - Be Very Careful!`}
+            {alertCount === 1 && "⚠️ 1 Potential Fraud Alert Detected"}
+            {alertCount > 1 && `🚨 ${alertCount} Fraud Alerts Detected - Be Very Careful!`}
           </div>
         )}
 
@@ -812,8 +856,8 @@ export default function VoiceCall() {
           </div>
         )}
 
-        {/* Scam Alert Modal */}
-        {showScamAlert && currentScamAlert && isProtected && (
+        {/* Scam Alert Modal - Only show for alerts about OTHER users */}
+        {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && (
           <div style={{
             position: "fixed",
             top: 0,
@@ -849,6 +893,19 @@ export default function VoiceCall() {
               </h2>
               
               <div style={{ 
+                marginBottom: "15px",
+                background: "#f8f9fa",
+                padding: "15px",
+                borderRadius: "8px",
+                borderLeft: "4px solid #007bff",
+              }}>
+                <strong>⚠️ Another user may be attempting fraud</strong>
+                <div style={{ fontSize: "14px", marginTop: "5px", color: "#666" }}>
+                  Speaker ID: {currentScamAlert.speaker}
+                </div>
+              </div>
+              
+              <div style={{ 
                 marginBottom: "25px",
                 background: getRiskColor(currentScamAlert.riskLevel),
                 color: "white",
@@ -867,10 +924,29 @@ export default function VoiceCall() {
                 <div style={{ fontSize: "16px", textAlign: "center" }}>
                   {currentScamAlert.riskLevel} RISK
                 </div>
+                {currentScamAlert.kbEnhanced && (
+                  <div style={{ fontSize: "14px", textAlign: "center", marginTop: "8px" }}>
+                    ✓ Enhanced by Knowledge Base ({currentScamAlert.kbMatches} patterns)
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom: "20px", fontSize: "16px" }}>
-                <strong style={{ fontSize: "18px" }}>What's Happening:</strong>
+                <strong style={{ fontSize: "18px" }}>Message from other user:</strong>
+                <p style={{ 
+                  marginTop: "8px", 
+                  lineHeight: "1.6",
+                  background: "#f8f9fa",
+                  padding: "10px",
+                  borderRadius: "4px",
+                  fontStyle: "italic",
+                }}>
+                  "{currentScamAlert.callerMessage}"
+                </p>
+              </div>
+
+              <div style={{ marginBottom: "20px", fontSize: "16px" }}>
+                <strong style={{ fontSize: "18px" }}>Analysis:</strong>
                 <p style={{ marginTop: "8px", lineHeight: "1.6" }}>{currentScamAlert.summary}</p>
               </div>
 
@@ -950,7 +1026,6 @@ export default function VoiceCall() {
           {socketRef.current && <span> | Socket ID: {socketRef.current.id}</span>}
           {isRecording && <span> | 🎤 Recording</span>}
           {isMuted && <span> | 🔇 Muted</span>}
-          {isProtected && <span> | 🛡️ Protected</span>}
         </div>
 
         {!isInCall ? (
@@ -983,25 +1058,35 @@ export default function VoiceCall() {
         <audio ref={localAudioRef} autoPlay muted playsInline />
         <audio ref={remoteAudioRef} autoPlay playsInline />
 
-        <TranscriptDisplay transcripts={transcripts} />
+        {/* <TranscriptDisplay transcripts={transcripts} /> */}
         
-        {/* Scam History */}
-        {isProtected && scamHistory.length > 0 && (
+        {/* Scam History - Show all alerts but indicate which are about you vs others */}
+        {scamHistory.length > 0 && (
           <div style={{ marginTop: "30px" }}>
-            <h3>📊 Scam Detection History ({scamHistory.length} total)</h3>
-            {scamHistory.slice(0, 5).map((alert, index) => (
+            <h3>📊 Fraud Detection History ({scamHistory.length} total)</h3>
+            {scamHistory.slice(0, 10).map((alert, index) => (
               <div key={index} style={{
                 padding: "15px",
                 margin: "10px 0",
-                background: "#f8f9fa",
+                background: alert.isAboutMe ? "#e7f3ff" : "#f8f9fa",
                 borderRadius: "8px",
                 borderLeft: `6px solid ${getRiskColor(alert.riskLevel)}`,
                 animation: index === 0 ? "slideDown 0.5s" : "none",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-                  <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
-                    {alert.riskLevel} RISK ({alert.scamProbability}%)
-                  </strong>
+                  <div>
+                    <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
+                      {alert.riskLevel} RISK ({alert.scamProbability}%)
+                    </strong>
+                    {alert.kbEnhanced && (
+                      <span style={{ fontSize: "12px", marginLeft: "10px", color: "#666" }}>
+                        ✓ KB Enhanced ({alert.kbMatches})
+                      </span>
+                    )}
+                    <div style={{ fontSize: "13px", color: "#666", marginTop: "4px" }}>
+                      {alert.isAboutMe ? "📝 Your message" : `⚠️ From user ${alert.speaker}`}
+                    </div>
+                  </div>
                   <small>{new Date(alert.timestamp).toLocaleTimeString()}</small>
                 </div>
                 <div style={{ fontSize: "14px", marginBottom: "8px" }}>{alert.summary}</div>
