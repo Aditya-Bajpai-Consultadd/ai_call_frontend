@@ -13,19 +13,18 @@ interface Transcript {
 }
 
 interface ScamAlert {
-  speaker: string; // WHO committed the fraud
+  speaker: string;
   callerMessage: string;
   summary: string;
   scamProbability: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
-  concerns: string[];
   reasoning: string;
   recommendedAction: string;
   timestamp: string;
   kbEnhanced: boolean;
   kbMatches: number;
   confidence: string;
-  isAboutMe: boolean; // Is this alert about my own message?
+  isAboutMe: boolean;
 }
 
 export default function VoiceCall() {
@@ -144,9 +143,7 @@ export default function VoiceCall() {
       summary: string;
       fraudScore: number;
       riskLevel: "LOW" | "MEDIUM" | "HIGH";
-      redFlags: string[];
       reasoning: string;
-      matchedPatterns: string[];
       kbEnhanced: boolean;
       kbMatches: number;
       confidence: { final: number; base: number; kbBoost: number; explanation: string };
@@ -188,9 +185,8 @@ export default function VoiceCall() {
           summary: data.summary,
           scamProbability: data.fraudScore,
           riskLevel: data.riskLevel,
-          concerns: data.redFlags,
           reasoning: data.reasoning,
-          recommendedAction: getFraudRecommendation(data.riskLevel, data.matchedPatterns),
+          recommendedAction: getFraudRecommendation(data.riskLevel),
           timestamp: data.timestamp,
           kbEnhanced: data.kbEnhanced,
           kbMatches: data.kbMatches,
@@ -751,7 +747,7 @@ export default function VoiceCall() {
     }
   };
 
-  const getFraudRecommendation = (riskLevel: string, patterns: string[]): string => {
+  const getFraudRecommendation = (riskLevel: string): string => {
     if (riskLevel === "HIGH") {
       return "🚨 HIGH RISK DETECTED - END THIS CALL IMMEDIATELY! This appears to be a scam. Hang up and verify through official channels.";
     } else if (riskLevel === "MEDIUM") {
@@ -961,23 +957,6 @@ export default function VoiceCall() {
                   <p className="text-gray-700 leading-relaxed">{currentScamAlert.summary}</p>
                 </div>
 
-                {/* Red Flags */}
-                {currentScamAlert.concerns.length > 0 && (
-                  <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-5">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                      <span className="text-2xl">🚩</span>
-                      Red Flags Detected:
-                    </h3>
-                    <ul className="space-y-2">
-                      {currentScamAlert.concerns.map((concern, i) => (
-                        <li key={i} className="flex items-start gap-3">
-                          <span className="text-yellow-600 font-bold mt-1">•</span>
-                          <span className="text-gray-800">{concern}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
 
                 {/* Recommended Action */}
                 <div className="bg-gradient-to-br from-red-600 to-red-700 text-white rounded-xl p-6 border-2 border-red-900 shadow-lg">
