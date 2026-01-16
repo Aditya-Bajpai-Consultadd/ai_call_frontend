@@ -835,48 +835,32 @@ export default function VoiceCall() {
   };
 
   return (
-    <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto", position: "relative" }}>
+  <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4 font-sans">
+    <div className="max-w-4xl mx-auto relative">
       {/* Persistent Danger Banner - Only show for HIGH RISK >80% about OTHER users */}
       {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 0 && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          background: "#dc3545",
-          color: "white",
-          padding: "20px",
-          zIndex: 999,
-          animation: "slideDown 0.5s ease-out, pulse 2s infinite",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          borderBottom: "4px solid #a02030",
-        }}>
-          <div style={{ maxWidth: "800px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "8px" }}>
-                🚨 DANGER - HIGH RISK SCAM DETECTED 🚨
+        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-red-600 to-red-700 text-white shadow-2xl z-50 animate-in slide-in-from-top duration-500 border-b-4 border-red-900">
+          <div className="max-w-4xl mx-auto px-6 py-5 flex items-center justify-between">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl animate-pulse">🚨</span>
+                <h2 className="text-2xl font-bold tracking-tight">DANGER - HIGH RISK SCAM DETECTED</h2>
+                <span className="text-3xl animate-pulse">🚨</span>
               </div>
-              <div style={{ fontSize: "18px", fontWeight: "bold" }}>
-                Fraud Risk: {currentScamAlert.scamProbability}% 
-                {currentScamAlert.kbEnhanced && ` (KB Enhanced: ${currentScamAlert.kbMatches} patterns)`}
+              <div className="flex items-center gap-4 text-lg">
+                <span className="font-semibold">Fraud Risk: {currentScamAlert.scamProbability}%</span>
+                {currentScamAlert.kbEnhanced && (
+                  <span className="bg-red-800 px-3 py-1 rounded-full text-sm font-medium">
+                    KB Enhanced: {currentScamAlert.kbMatches} patterns
+                  </span>
+                )}
               </div>
-              <div style={{ fontSize: "14px", marginTop: "5px" }}>
-                Consider ending this call immediately!
-              </div>
+              <p className="text-sm font-medium opacity-90">Consider ending this call immediately!</p>
             </div>
             <button
               onClick={dismissDangerBanner}
-              style={{
-                background: "rgba(255,255,255,0.3)",
-                border: "2px solid white",
-                color: "white",
-                padding: "8px 16px",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: "bold",
-                marginLeft: "20px",
-              }}
+              className="ml-6 bg-white/20 hover:bg-white/30 border-2 border-white rounded-lg px-4 py-2 font-bold transition-all duration-200 hover:scale-105"
+              aria-label="Dismiss banner"
             >
               ✕
             </button>
@@ -884,223 +868,197 @@ export default function VoiceCall() {
         </div>
       )}
 
-      <div style={{ marginTop: showDangerBanner ? "120px" : "0" }}>
-        <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Fraud Detection</h1>
+      <div className={showDangerBanner ? "mt-32" : ""}>
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-xl p-8 mb-6 border border-gray-200 text-center">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <span className="text-4xl">🛡️</span>
+            <h1 className="text-3xl font-bold text-gray-900 text-center">Protected Voice Call</h1>
+          </div>
+          <p className="text-gray-600 ml-14">Real-time fraud detection and monitoring</p>
+        </div>
 
         {/* Alert Counter - Only count HIGH RISK >80% alerts about OTHER users */}
         {alertCount > 0 && (
-          <div style={{
-            padding: "10px",
-            background: "#dc3545",
-            color: "white",
-            borderRadius: "8px",
-            marginBottom: "15px",
-            textAlign: "center",
-            fontWeight: "bold",
-            animation: "pulse 1.5s infinite",
-          }}>
-            {alertCount === 1 && "🚨 HIGH RISK Fraud Alert Detected (>80%)"}
-            {alertCount > 1 && `🚨 ${alertCount} HIGH RISK Fraud Alerts Detected (>80%) - Be Very Careful!`}
+          <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl shadow-lg p-5 mb-6 animate-pulse">
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-3xl">🚨</span>
+              <p className="text-xl font-bold">
+                {alertCount === 1 
+                  ? "HIGH RISK Fraud Alert Detected (>80%)" 
+                  : `${alertCount} HIGH RISK Fraud Alerts Detected (>80%) - Be Very Careful!`}
+              </p>
+              <span className="text-3xl">🚨</span>
+            </div>
           </div>
         )}
 
         {/* Role indicator */}
         {isInCall && userRole && (
-          <div style={{ 
-            padding: "15px", 
-            background: isProtected ? "#d4edda" : "#d1ecf1", 
-            borderRadius: "8px", 
-            marginBottom: "20px",
-            border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
-          }}>
-            <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk &gt;80% will trigger alerts)</div>}
+          <div className={`rounded-xl shadow-md p-5 mb-6 border-2 ${
+            isProtected 
+              ? "bg-green-50 border-green-500" 
+              : "bg-blue-50 border-blue-500"
+          }`}>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-2xl">{isProtected ? "🛡️" : "📞"}</span>
+              <h3 className="text-lg font-bold text-gray-900">
+                Your Role: {isProtected ? "Protected User" : "Caller"}
+              </h3>
+            </div>
+            {isProtected && (
+              <p className="text-sm text-gray-700 ml-9">
+                You are being protected from potential scams (Only HIGH risk &gt;80% will trigger alerts)
+              </p>
+            )}
           </div>
         )}
 
         {/* Scam Alert Modal - Only show for HIGH RISK >80% about OTHER users */}
         {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 80 && (
-          <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}>
-            <div style={{
-              background: "white",
-              padding: "40px",
-              borderRadius: "16px",
-              maxWidth: "600px",
-              maxHeight: "90vh",
-              overflow: "auto",
-              border: "6px solid #dc3545",
-              animation: "shake 0.5s, pulse 2s infinite",
-              boxShadow: "0 0 40px #dc3545",
-            }}>
-              <h2 style={{ 
-                color: "#dc3545",
-                marginBottom: "20px",
-                fontSize: "32px",
-                textAlign: "center",
-              }}>
-                🚨 HIGH RISK SCAM ALERT! 🚨
-              </h2>
-              
-              <div style={{ 
-                marginBottom: "15px",
-                background: "#f8f9fa",
-                padding: "15px",
-                borderRadius: "8px",
-                borderLeft: "4px solid #007bff",
-              }}>
-                <strong>⚠️ Another user may be attempting fraud</strong>
-                <div style={{ fontSize: "14px", marginTop: "5px", color: "#666" }}>
-                  Speaker ID: {currentScamAlert.speaker}
-                </div>
+          <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border-4 border-red-600 shadow-2xl animate-in zoom-in-95 duration-300">
+              <div className="sticky top-0 bg-gradient-to-r from-red-600 to-red-700 text-white p-6 rounded-t-xl">
+                <h2 className="text-3xl font-bold text-center flex items-center justify-center gap-3">
+                  <span className="text-4xl animate-pulse">🚨</span>
+                  HIGH RISK SCAM ALERT!
+                  <span className="text-4xl animate-pulse">🚨</span>
+                </h2>
               </div>
-              
-              <div style={{ 
-                marginBottom: "25px",
-                background: "#dc3545",
-                color: "white",
-                padding: "20px",
-                borderRadius: "12px",
-              }}>
-                <strong style={{ fontSize: "18px" }}>Fraud Risk Score:</strong>
-                <div style={{
-                  fontSize: "48px",
-                  fontWeight: "bold",
-                  margin: "10px 0",
-                  textAlign: "center",
-                }}>
-                  {currentScamAlert.scamProbability}%
+
+              <div className="p-8 space-y-6">
+                {/* Speaker Warning */}
+                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                  <p className="font-semibold text-gray-900 mb-1">⚠️ Another user may be attempting fraud</p>
+                  <p className="text-sm text-gray-600">Speaker ID: {currentScamAlert.speaker}</p>
                 </div>
-                <div style={{ fontSize: "16px", textAlign: "center" }}>
-                  HIGH RISK (Above 80% threshold)
+
+                {/* Fraud Risk Score */}
+                <div className="bg-gradient-to-br from-red-600 to-red-700 text-white rounded-xl p-6 shadow-lg">
+                  <p className="text-lg font-semibold mb-3">Fraud Risk Score:</p>
+                  <div className="text-center">
+                    <div className="text-6xl font-bold mb-2">{currentScamAlert.scamProbability}%</div>
+                    <div className="text-xl font-medium mb-2">HIGH RISK (Above 80% threshold)</div>
+                    {currentScamAlert.kbEnhanced && (
+                      <div className="bg-red-800 inline-block px-4 py-2 rounded-full text-sm font-medium mt-2">
+                        ✓ Enhanced by Knowledge Base ({currentScamAlert.kbMatches} patterns)
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {currentScamAlert.kbEnhanced && (
-                  <div style={{ fontSize: "14px", textAlign: "center", marginTop: "8px" }}>
-                    ✓ Enhanced by Knowledge Base ({currentScamAlert.kbMatches} patterns)
+
+                {/* Message */}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-3">Message from other user:</h3>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p className="text-gray-800 italic leading-relaxed">"{currentScamAlert.callerMessage}"</p>
+                  </div>
+                </div>
+
+                {/* Analysis */}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-3">Analysis:</h3>
+                  <p className="text-gray-700 leading-relaxed">{currentScamAlert.summary}</p>
+                </div>
+
+                {/* Red Flags */}
+                {currentScamAlert.concerns.length > 0 && (
+                  <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-5">
+                    <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                      <span className="text-2xl">🚩</span>
+                      Red Flags Detected:
+                    </h3>
+                    <ul className="space-y-2">
+                      {currentScamAlert.concerns.map((concern, i) => (
+                        <li key={i} className="flex items-start gap-3">
+                          <span className="text-yellow-600 font-bold mt-1">•</span>
+                          <span className="text-gray-800">{concern}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-              </div>
 
-              <div style={{ marginBottom: "20px", fontSize: "16px" }}>
-                <strong style={{ fontSize: "18px" }}>Message from other user:</strong>
-                <p style={{ 
-                  marginTop: "8px", 
-                  lineHeight: "1.6",
-                  background: "#f8f9fa",
-                  padding: "10px",
-                  borderRadius: "4px",
-                  fontStyle: "italic",
-                }}>
-                  "{currentScamAlert.callerMessage}"
-                </p>
-              </div>
-
-              <div style={{ marginBottom: "20px", fontSize: "16px" }}>
-                <strong style={{ fontSize: "18px" }}>Analysis:</strong>
-                <p style={{ marginTop: "8px", lineHeight: "1.6" }}>{currentScamAlert.summary}</p>
-              </div>
-
-              {currentScamAlert.concerns.length > 0 && (
-                <div style={{ 
-                  marginBottom: "20px",
-                  background: "#fff3cd",
-                  padding: "15px",
-                  borderRadius: "8px",
-                  border: "2px solid #ffc107",
-                }}>
-                  <strong style={{ fontSize: "18px" }}>🚩 Red Flags Detected:</strong>
-                  <ul style={{ marginTop: "10px", paddingLeft: "20px", lineHeight: "1.8" }}>
-                    {currentScamAlert.concerns.map((concern, i) => (
-                      <li key={i} style={{ fontSize: "15px", marginBottom: "8px" }}>{concern}</li>
-                    ))}
-                  </ul>
+                {/* Recommended Action */}
+                <div className="bg-gradient-to-br from-red-600 to-red-700 text-white rounded-xl p-6 border-2 border-red-900 shadow-lg">
+                  <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                    <span className="text-xl">📋</span>
+                    RECOMMENDED ACTION:
+                  </h3>
+                  <p className="text-base font-semibold leading-relaxed">
+                    {currentScamAlert.recommendedAction}
+                  </p>
                 </div>
-              )}
 
-              <div style={{ 
-                marginTop: "25px", 
-                padding: "20px", 
-                background: "#dc3545",
-                color: "white",
-                borderRadius: "12px",
-                border: "3px solid #a02030",
-              }}>
-                <strong style={{ fontSize: "18px" }}>📋 RECOMMENDED ACTION:</strong>
-                <p style={{ marginTop: "10px", fontSize: "16px", fontWeight: "bold", lineHeight: "1.6" }}>
-                  {currentScamAlert.recommendedAction}
-                </p>
-              </div>
-
-              <div style={{ display: "flex", gap: "10px", marginTop: "25px" }}>
-                <button
-                  onClick={endCall}
-                  style={{
-                    flex: 1,
-                    padding: "16px",
-                    fontSize: "18px",
-                    fontWeight: "bold",
-                    backgroundColor: "#dc3545",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    animation: "pulse 1.5s infinite",
-                  }}
-                >
-                  🚨 END CALL NOW
-                </button>
-                <button
-                  onClick={dismissScamAlert}
-                  style={{
-                    flex: 1,
-                    padding: "16px",
-                    fontSize: "16px",
-                    backgroundColor: "#6c757d",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Dismiss & Reset
-                </button>
+                {/* Action Buttons */}
+                <div className="flex gap-4 pt-4">
+                  <button
+                    onClick={endCall}
+                    className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 hover:scale-105 text-lg animate-pulse"
+                  >
+                    🚨 END CALL NOW
+                  </button>
+                  <button
+                    onClick={dismissScamAlert}
+                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 hover:scale-105"
+                  >
+                    Dismiss & Reset
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        <div style={{ padding: "10px", background: "#f0f0f0", borderRadius: "4px", marginBottom: "20px", fontSize: "14px" }}>
-          <strong>Connection Status:</strong> {connectionStatus}
-          {socketRef.current && <span> | Socket ID: {socketRef.current.id}</span>}
-          {isRecording && <span> | 🎤 Recording</span>}
-          {isMuted && <span> | 🔇 Muted</span>}
+        {/* Connection Status */}
+        <div className="bg-white rounded-xl shadow-md p-5 mb-6 border border-gray-200">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-700">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <span className="font-semibold">Connection Status:</span>
+              <span className="text-gray-900">{connectionStatus}</span>
+            </div>
+            {socketRef.current && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">|</span>
+                <span className="font-semibold">Socket ID:</span>
+                <code className="bg-gray-100 px-2 py-1 rounded text-xs">{socketRef.current.id}</code>
+              </div>
+            )}
+            {isRecording && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">|</span>
+                <span className="text-red-600 font-semibold animate-pulse">🎤 Recording</span>
+              </div>
+            )}
+            {isMuted && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">|</span>
+                <span className="text-gray-600 font-semibold">🔇 Muted</span>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Call Controls */}
         {!isInCall ? (
-          <div style={{ marginBottom: "30px" }}>
-            <input
-              type="text"
-              placeholder="Enter Room ID"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              style={{ padding: "12px", fontSize: "16px", width: "300px", marginRight: "10px", border: "2px solid #ddd", borderRadius: "4px" }}
-            />
-            <button
-              onClick={startCall}
-              style={{ padding: "12px 24px", fontSize: "16px", backgroundColor: "#4CAF50", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
-            >
-              Start Call
-            </button>
+          <div className="bg-white rounded-xl shadow-md p-8 mb-6 border border-gray-200">
+            <h3 className="text-xl font-bold text-gray-900 mb-6">Start a Call</h3>
+            <div className="flex flex-wrap gap-4 mb-6">
+              <input
+                type="text"
+                placeholder="Enter Room ID"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                className="flex-1 min-w-[250px] px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all"
+              />
+              <button
+                onClick={startCall}
+                className="px-8 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold rounded-lg shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl"
+              >
+                🚀 Start Call
+              </button>
+            </div>
 
             <PermissionStatus
               status={permissionStatus}
@@ -1110,53 +1068,23 @@ export default function VoiceCall() {
             />
           </div>
         ) : (
-          <CallControls roomId={roomId} isMuted={isMuted} isRecording={isRecording} onToggleMute={toggleMute} onEndCall={endCall} />
+          <div className="bg-white rounded-xl shadow-md p-8 mb-6 border border-gray-200">
+            <CallControls 
+              roomId={roomId} 
+              isMuted={isMuted} 
+              isRecording={isRecording} 
+              onToggleMute={toggleMute} 
+              onEndCall={endCall} 
+            />
+          </div>
         )}
 
         <audio ref={localAudioRef} autoPlay muted playsInline />
         <audio ref={remoteAudioRef} autoPlay playsInline />
 
-        {/* Removed TranscriptDisplay component - transcripts only logged to console */}
-        
-        {/* Removed Scam History section - only HIGH RISK >80% alerts shown in modal */}
-
         <Instructions />
-        
-        <style jsx>{`
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
-          }
-          
-          @keyframes pulse {
-            0%, 100% { 
-              transform: scale(1);
-              box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
-            }
-            50% { 
-              transform: scale(1.05);
-              box-shadow: 0 0 0 20px rgba(220, 53, 69, 0);
-            }
-          }
-          
-          @keyframes flashBorder {
-            0%, 100% { border-color: #dc3545; }
-            50% { border-color: #ff6b6b; }
-          }
-          
-          @keyframes slideDown {
-            from {
-              transform: translateY(-100%);
-              opacity: 0;
-            }
-            to {
-              transform: translateY(0);
-              opacity: 1;
-            }
-          }
-        `}</style>
       </div>
     </div>
-  );
-}
+    </div>
+  )
+  }
