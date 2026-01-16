@@ -155,17 +155,18 @@ export default function VoiceCall() {
       console.log("📊 FRAUD SCORE RECEIVED:", data);
       console.log("   Speaker who was analyzed:", data.speaker);
       console.log("   My socket ID:", socketRef.current?.id);
+      console.log("   Fraud Score:", data.fraudScore, "Risk Level:", data.riskLevel);
       
       // Check if this is about someone else (not me)
       const isAboutSomeoneElse = data.speaker !== socketRef.current?.id;
       
       if (isAboutSomeoneElse) {
-        console.log("⚠️ FRAUD ALERT: Another user may be attempting fraud!");
+        console.log("⚠️ FRAUD ANALYSIS: Another user's message was analyzed");
       } else {
         console.log("ℹ️ This is analysis of my own message");
       }
       
-      // Create fraud alert
+      // Create fraud alert for history tracking (all levels)
       const alert: ScamAlert = {
         speaker: data.speaker,
         callerMessage: data.message,
@@ -185,59 +186,45 @@ export default function VoiceCall() {
       setCurrentScamAlert(alert);
       setScamHistory(prev => [alert, ...prev]);
       
-      // Only show prominent alerts for OTHER users' fraud (not my own)
-      if (isAboutSomeoneElse) {
-        console.log("🚨 Showing alert about other user's potential fraud");
+      // ⚠️ ONLY SHOW ALARMS FOR HIGH RISK (>85%) FROM OTHER USERS
+      if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore > 85) {
+        console.log("🚨 HIGH RISK FRAUD DETECTED (>85%) - TRIGGERING FULL ALERT");
         setShowScamAlert(true);
         setAlertCount(prev => prev + 1);
+        setShowDangerBanner(true);
         
-        // Show danger banner for HIGH and MEDIUM risk
-        if (data.riskLevel === "HIGH" || data.riskLevel === "MEDIUM") {
-          setShowDangerBanner(true);
+        // Play continuous alert sound
+        playAlertSound(true);
+        
+        // Vibrate in SOS pattern
+        if (navigator.vibrate) {
+          navigator.vibrate([
+            200, 100, 200, 100, 200, 300,  // ... (short)
+            500, 100, 500, 100, 500, 300,  // --- (long)
+            200, 100, 200, 100, 200         // ... (short)
+          ]);
         }
         
-        // Enhanced alerts for HIGH risk from others
-        if (data.riskLevel === "HIGH") {
-          console.log("🚨 HIGH RISK FROM OTHER USER - TRIGGERING FULL ALERT");
-          
-          // Play continuous alert sound
-          playAlertSound(true);
-          
-          // Vibrate in SOS pattern
-          if (navigator.vibrate) {
-            navigator.vibrate([
-              200, 100, 200, 100, 200, 300,  // ... (short)
-              500, 100, 500, 100, 500, 300,  // --- (long)
-              200, 100, 200, 100, 200         // ... (short)
-            ]);
-          }
-          
-          // Change page title to alert
-          document.title = "🚨 SCAM ALERT! 🚨";
-          
-          // Flash the favicon
-          flashFavicon();
-          
-          // Show browser notification
-          showNotification(
-            "🚨 SCAM ALERT!", 
-            `High fraud risk detected from other user!\nFraud Score: ${data.fraudScore}%\n${data.summary}`
-          );
-          
-        } else if (data.riskLevel === "MEDIUM") {
-          console.log("⚠️ MEDIUM RISK FROM OTHER USER");
-          
-          // Single vibration for medium risk
-          if (navigator.vibrate) {
-            navigator.vibrate([300, 200, 300]);
-          }
-          playAlertSound(false);
-          document.title = "⚠️ Warning - Possible Scam";
-        }
-      } else {
+        // Change page title to alert
+        document.title = "🚨 SCAM ALERT! 🚨";
+        
+        // Flash the favicon
+        flashFavicon();
+        
+        // Show browser notification
+        showNotification(
+          "🚨 SCAM ALERT!", 
+          `High fraud risk detected from other user!\nFraud Score: ${data.fraudScore}%\n${data.summary}`
+        );
+      } else if (isAboutSomeoneElse && data.riskLevel === "HIGH" && data.fraudScore <= 85) {
+        // Log HIGH risk but below threshold - no alarm
+        console.log(`⚠️ HIGH risk detected (${data.fraudScore}%) but below 85% threshold - no alarm triggered`);
+      } else if (isAboutSomeoneElse && (data.riskLevel === "MEDIUM" || data.riskLevel === "LOW")) {
+        // Log MEDIUM/LOW risk - no alarm
+        console.log(`ℹ️ ${data.riskLevel} risk detected (${data.fraudScore}%) - no alarm triggered`);
+      } else if (!isAboutSomeoneElse) {
         // My own message was flagged - just log it
         console.log(`ℹ️ Your message fraud score: ${data.fraudScore}% (${data.riskLevel})`);
-        // Could show a subtle indicator that your message was analyzed
       }
       
       // Log KB enhancement details
@@ -771,35 +758,32 @@ export default function VoiceCall() {
 
   return (
     <div style={{ padding: "40px", fontFamily: "Arial, sans-serif", maxWidth: "800px", margin: "0 auto", position: "relative" }}>
-      {/* Persistent Danger Banner - Only show for alerts about OTHER users */}
-      {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && (
+      {/* Persistent Danger Banner - Only show for HIGH RISK >85% about OTHER users */}
+      {showDangerBanner && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 85 && (
         <div style={{
           position: "fixed",
           top: 0,
           left: 0,
           right: 0,
-          background: currentScamAlert.riskLevel === "HIGH" ? "#dc3545" : "#ffc107",
+          background: "#dc3545",
           color: "white",
           padding: "20px",
           zIndex: 999,
           animation: "slideDown 0.5s ease-out, pulse 2s infinite",
           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          borderBottom: "4px solid " + (currentScamAlert.riskLevel === "HIGH" ? "#a02030" : "#d39e00"),
+          borderBottom: "4px solid #a02030",
         }}>
           <div style={{ maxWidth: "800px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "8px" }}>
-                {currentScamAlert.riskLevel === "HIGH" && "🚨 DANGER - POTENTIAL SCAM DETECTED 🚨"}
-                {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ WARNING - SUSPICIOUS ACTIVITY"}
+                🚨 DANGER - HIGH RISK SCAM DETECTED 🚨
               </div>
               <div style={{ fontSize: "18px", fontWeight: "bold" }}>
                 Fraud Risk: {currentScamAlert.scamProbability}% 
                 {currentScamAlert.kbEnhanced && ` (KB Enhanced: ${currentScamAlert.kbMatches} patterns)`}
               </div>
               <div style={{ fontSize: "14px", marginTop: "5px" }}>
-                {currentScamAlert.riskLevel === "HIGH" 
-                  ? "Consider ending this call immediately!" 
-                  : "Be very careful with this conversation"}
+                Consider ending this call immediately!
               </div>
             </div>
             <button
@@ -825,20 +809,20 @@ export default function VoiceCall() {
       <div style={{ marginTop: showDangerBanner ? "120px" : "0" }}>
         <h1 style={{ marginBottom: "30px" }}>🛡️ Protected Voice Call with Fraud Detection</h1>
 
-        {/* Alert Counter - Only count alerts about OTHER users */}
+        {/* Alert Counter - Only count HIGH RISK >85% alerts about OTHER users */}
         {alertCount > 0 && (
           <div style={{
             padding: "10px",
-            background: alertCount > 2 ? "#dc3545" : "#ffc107",
+            background: "#dc3545",
             color: "white",
             borderRadius: "8px",
             marginBottom: "15px",
             textAlign: "center",
             fontWeight: "bold",
-            animation: alertCount > 2 ? "pulse 1.5s infinite" : "none",
+            animation: "pulse 1.5s infinite",
           }}>
-            {alertCount === 1 && "⚠️ 1 Potential Fraud Alert Detected"}
-            {alertCount > 1 && `🚨 ${alertCount} Fraud Alerts Detected - Be Very Careful!`}
+            {alertCount === 1 && "🚨 HIGH RISK Fraud Alert Detected (>85%)"}
+            {alertCount > 1 && `🚨 ${alertCount} HIGH RISK Fraud Alerts Detected (>85%) - Be Very Careful!`}
           </div>
         )}
 
@@ -852,12 +836,12 @@ export default function VoiceCall() {
             border: `2px solid ${isProtected ? "#28a745" : "#17a2b8"}`
           }}>
             <strong>Your Role:</strong> {isProtected ? "🛡️ Protected User" : "📞 Caller"}
-            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams</div>}
+            {isProtected && <div style={{ marginTop: "5px", fontSize: "14px" }}>You are being protected from potential scams (Only HIGH risk >85% will trigger alerts)</div>}
           </div>
         )}
 
-        {/* Scam Alert Modal - Only show for alerts about OTHER users */}
-        {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && (
+        {/* Scam Alert Modal - Only show for HIGH RISK >85% about OTHER users */}
+        {showScamAlert && currentScamAlert && !currentScamAlert.isAboutMe && currentScamAlert.riskLevel === "HIGH" && currentScamAlert.scamProbability > 85 && (
           <div style={{
             position: "fixed",
             top: 0,
@@ -877,19 +861,17 @@ export default function VoiceCall() {
               maxWidth: "600px",
               maxHeight: "90vh",
               overflow: "auto",
-              border: `6px solid ${getRiskColor(currentScamAlert.riskLevel)}`,
-              animation: currentScamAlert.riskLevel === "HIGH" ? "shake 0.5s, pulse 2s infinite" : "slideDown 0.5s",
-              boxShadow: `0 0 40px ${getRiskColor(currentScamAlert.riskLevel)}`,
+              border: "6px solid #dc3545",
+              animation: "shake 0.5s, pulse 2s infinite",
+              boxShadow: "0 0 40px #dc3545",
             }}>
               <h2 style={{ 
-                color: getRiskColor(currentScamAlert.riskLevel),
+                color: "#dc3545",
                 marginBottom: "20px",
                 fontSize: "32px",
                 textAlign: "center",
               }}>
-                {currentScamAlert.riskLevel === "HIGH" && "🚨 SCAM ALERT! 🚨"}
-                {currentScamAlert.riskLevel === "MEDIUM" && "⚠️ WARNING"}
-                {currentScamAlert.riskLevel === "LOW" && "ℹ️ Notice"}
+                🚨 HIGH RISK SCAM ALERT! 🚨
               </h2>
               
               <div style={{ 
@@ -907,7 +889,7 @@ export default function VoiceCall() {
               
               <div style={{ 
                 marginBottom: "25px",
-                background: getRiskColor(currentScamAlert.riskLevel),
+                background: "#dc3545",
                 color: "white",
                 padding: "20px",
                 borderRadius: "12px",
@@ -922,7 +904,7 @@ export default function VoiceCall() {
                   {currentScamAlert.scamProbability}%
                 </div>
                 <div style={{ fontSize: "16px", textAlign: "center" }}>
-                  {currentScamAlert.riskLevel} RISK
+                  HIGH RISK (Above 85% threshold)
                 </div>
                 {currentScamAlert.kbEnhanced && (
                   <div style={{ fontSize: "14px", textAlign: "center", marginTop: "8px" }}>
@@ -970,10 +952,10 @@ export default function VoiceCall() {
               <div style={{ 
                 marginTop: "25px", 
                 padding: "20px", 
-                background: currentScamAlert.riskLevel === "HIGH" ? "#dc3545" : "#fff3cd",
-                color: currentScamAlert.riskLevel === "HIGH" ? "white" : "#000",
+                background: "#dc3545",
+                color: "white",
                 borderRadius: "12px",
-                border: `3px solid ${currentScamAlert.riskLevel === "HIGH" ? "#a02030" : "#ffc107"}`,
+                border: "3px solid #a02030",
               }}>
                 <strong style={{ fontSize: "18px" }}>📋 RECOMMENDED ACTION:</strong>
                 <p style={{ marginTop: "10px", fontSize: "16px", fontWeight: "bold", lineHeight: "1.6" }}>
@@ -982,25 +964,23 @@ export default function VoiceCall() {
               </div>
 
               <div style={{ display: "flex", gap: "10px", marginTop: "25px" }}>
-                {currentScamAlert.riskLevel === "HIGH" && (
-                  <button
-                    onClick={endCall}
-                    style={{
-                      flex: 1,
-                      padding: "16px",
-                      fontSize: "18px",
-                      fontWeight: "bold",
-                      backgroundColor: "#dc3545",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      animation: "pulse 1.5s infinite",
-                    }}
-                  >
-                    🚨 END CALL NOW
-                  </button>
-                )}
+                <button
+                  onClick={endCall}
+                  style={{
+                    flex: 1,
+                    padding: "16px",
+                    fontSize: "18px",
+                    fontWeight: "bold",
+                    backgroundColor: "#dc3545",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    animation: "pulse 1.5s infinite",
+                  }}
+                >
+                  🚨 END CALL NOW
+                </button>
                 <button
                   onClick={dismissScamAlert}
                   style={{
@@ -1060,24 +1040,48 @@ export default function VoiceCall() {
 
         {/* <TranscriptDisplay transcripts={transcripts} /> */}
         
-        {/* Scam History - Show all alerts but indicate which are about you vs others */}
+        {/* Scam History - Show all alerts with visual distinction for HIGH RISK >85% */}
         {scamHistory.length > 0 && (
           <div style={{ marginTop: "30px" }}>
             <h3>📊 Fraud Detection History ({scamHistory.length} total)</h3>
+            <div style={{ 
+              padding: "10px", 
+              background: "#fff3cd", 
+              borderRadius: "4px", 
+              marginBottom: "10px",
+              fontSize: "14px",
+              border: "1px solid #ffc107"
+            }}>
+              ℹ️ Only HIGH risk alerts above 85% trigger alarms and notifications
+            </div>
             {scamHistory.slice(0, 10).map((alert, index) => (
               <div key={index} style={{
                 padding: "15px",
                 margin: "10px 0",
-                background: alert.isAboutMe ? "#e7f3ff" : "#f8f9fa",
+                background: alert.isAboutMe ? "#e7f3ff" : (alert.riskLevel === "HIGH" && alert.scamProbability > 85 ? "#ffe6e6" : "#f8f9fa"),
                 borderRadius: "8px",
                 borderLeft: `6px solid ${getRiskColor(alert.riskLevel)}`,
                 animation: index === 0 ? "slideDown 0.5s" : "none",
+                opacity: (alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe) ? 1 : 0.7,
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
                   <div>
                     <strong style={{ color: getRiskColor(alert.riskLevel), fontSize: "16px" }}>
                       {alert.riskLevel} RISK ({alert.scamProbability}%)
                     </strong>
+                    {alert.riskLevel === "HIGH" && alert.scamProbability > 85 && !alert.isAboutMe && (
+                      <span style={{ 
+                        marginLeft: "10px", 
+                        padding: "2px 8px", 
+                        background: "#dc3545", 
+                        color: "white", 
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        fontWeight: "bold"
+                      }}>
+                        🚨 ALARM TRIGGERED
+                      </span>
+                    )}
                     {alert.kbEnhanced && (
                       <span style={{ fontSize: "12px", marginLeft: "10px", color: "#666" }}>
                         ✓ KB Enhanced ({alert.kbMatches})
